@@ -38,11 +38,8 @@ interface TrendRecord {
 
 type TrendData = Record<string, TrendRecord[]>;
 
-const BACKEND_BASE =
-  process.env.NEXT_PUBLIC_BACKEND_URL ||
-  (typeof window !== "undefined" && window.location.hostname !== "localhost"
-    ? "https://backend-global-sales.onrender.com"
-    : "http://localhost:8000");
+const BACKEND_BASE = "https://backend-global-sales.onrender.com";
+
 
 
 /* 🔥 Glass Card Style */
