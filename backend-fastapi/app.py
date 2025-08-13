@@ -1,4 +1,3 @@
-# app.py
 import os
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
@@ -9,8 +8,12 @@ import pandas as pd
 
 app = FastAPI(title="Global Sales API")
 
-# CORS - set FRONTEND_ORIGIN env var to your frontend origin in deployment
+# === Config ===
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DATA_PATH = os.path.join(BASE_DIR, "Sample - Superstore.csv")
 FRONTEND_ORIGIN = os.getenv("FRONTEND_ORIGIN", "*")
+
+# === CORS ===
 allow_origins = [FRONTEND_ORIGIN] if FRONTEND_ORIGIN != "*" else ["*"]
 app.add_middleware(
     CORSMiddleware,
@@ -20,7 +23,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-DATA_PATH = os.getenv("DATA_PATH", "Sample - Superstore.csv")
+# === Global dataframe ===
+df = pd.DataFrame()
 
 def load_and_clean(path=DATA_PATH):
     if not os.path.exists(path):
@@ -39,12 +43,17 @@ def load_and_clean(path=DATA_PATH):
         df["Order ID"] = df.index.astype(str)
     return df
 
-# Load dataset once at startup
-try:
-    df = load_and_clean()
-except Exception as e:
-    df = pd.DataFrame()  # empty fallback; deployment should surface file-missing errors
+@app.on_event("startup")
+def startup_event():
+    global df
+    try:
+        df = load_and_clean(DATA_PATH)
+        print(f"✅ Loaded dataset: {len(df)} rows from '{DATA_PATH}'")
+    except Exception as e:
+        print(f"❌ Failed to load dataset: {e}")
+        df = pd.DataFrame()
 
+# === Utility ===
 def apply_filters(dataframe, categories=None, regions=None, years=None):
     df_f = dataframe
     if categories:
@@ -52,15 +61,16 @@ def apply_filters(dataframe, categories=None, regions=None, years=None):
     if regions:
         df_f = df_f[df_f["Region"].isin(regions)]
     if years:
-        years_int = [int(y) for y in years]
-        df_f = df_f[df_f["Year"].isin(years_int)]
+        df_f = df_f[df_f["Year"].isin([int(y) for y in years])]
     return df_f
 
+# === Request Model ===
 class FilterRequest(BaseModel):
     categories: Optional[List[str]] = None
     regions: Optional[List[str]] = None
     years: Optional[List[int]] = None
 
+# === Endpoints ===
 @app.get("/api/health")
 def health():
     return {"status": "ok"}
@@ -69,10 +79,11 @@ def health():
 def metadata():
     if df.empty:
         return {"categories": [], "regions": [], "years": []}
-    cats = sorted(df["Category"].dropna().unique().tolist()) if "Category" in df.columns else []
-    regs = sorted(df["Region"].dropna().unique().tolist()) if "Region" in df.columns else []
-    yrs = sorted(df["Year"].dropna().unique().astype(int).tolist())
-    return {"categories": cats, "regions": regs, "years": yrs}
+    return {
+        "categories": sorted(df["Category"].dropna().unique().tolist()),
+        "regions": sorted(df["Region"].dropna().unique().tolist()),
+        "years": sorted(df["Year"].dropna().astype(int).tolist())
+    }
 
 @app.post("/api/summary")
 def summary(filters: FilterRequest):
@@ -91,8 +102,6 @@ def sales_by_category(filters: FilterRequest):
     if df.empty:
         raise HTTPException(status_code=500, detail="Dataset not loaded.")
     filtered = apply_filters(df, filters.categories, filters.regions, filters.years)
-    if "Category" not in filtered.columns:
-        return {"data": []}
     agg = filtered.groupby("Category", as_index=False).agg({"Sales":"sum","Profit":"sum"})
     agg["Sales"] = agg["Sales"].astype(float)
     return {"data": agg.to_dict(orient="records")}
@@ -102,8 +111,6 @@ def sales_by_region(filters: FilterRequest):
     if df.empty:
         raise HTTPException(status_code=500, detail="Dataset not loaded.")
     filtered = apply_filters(df, filters.categories, filters.regions, filters.years)
-    if "Region" not in filtered.columns:
-        return {"data": []}
     agg = filtered.groupby("Region", as_index=False).agg({"Sales":"sum"})
     agg["Sales"] = agg["Sales"].astype(float)
     return {"data": agg.to_dict(orient="records")}
@@ -113,8 +120,6 @@ def monthly_trend(filters: FilterRequest):
     if df.empty:
         raise HTTPException(status_code=500, detail="Dataset not loaded.")
     filtered = apply_filters(df, filters.categories, filters.regions, filters.years)
-    if filtered.empty:
-        return {"data": {}}
     agg = filtered.groupby(["Year","MonthNum","Month"], as_index=False).agg({"Sales":"sum"})
     agg = agg.sort_values(["Year","MonthNum"])
     result = {}
@@ -128,11 +133,6 @@ def download_all():
         raise HTTPException(status_code=404, detail="Data file not found")
     return FileResponse(DATA_PATH, media_type="text/csv", filename="global_sales_cleaned.csv")
 
-# Placeholder for future ML endpoint
 @app.post("/api/predict")
 def predict(payload: dict):
-    """
-    Example placeholder. Later you will load a model (joblib/pickle)
-    and return predictions for given features.
-    """
     return {"prediction": None, "note": "No model deployed yet"}
