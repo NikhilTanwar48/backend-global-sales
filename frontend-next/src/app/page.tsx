@@ -3,7 +3,7 @@
 import React, { useEffect, useState } from "react";
 import axios from "axios";
 import dynamic from "next/dynamic";
-import { motion } from "framer-motion"; // npm install framer-motion
+import { motion } from "framer-motion";
 
 const Plot = dynamic(() => import("react-plotly.js"), { ssr: false });
 
@@ -40,8 +40,6 @@ type TrendData = Record<string, TrendRecord[]>;
 
 const BACKEND_BASE = "https://backend-global-sales.onrender.com";
 
-
-
 /* 🔥 Glass Card Style */
 const glassCard: React.CSSProperties = {
   flex: "1 1 calc(50% - 16px)",
@@ -55,7 +53,6 @@ const glassCard: React.CSSProperties = {
   boxShadow: "0 4px 20px rgba(0,0,0,0.1)",
 };
 
-/* 🎯 Components */
 const PageHeading = () => (
   <motion.div
     initial={{ opacity: 0, y: -20 }}
@@ -153,10 +150,12 @@ export default function Page() {
   const [trendData, setTrendData] = useState<TrendData>({});
   const [loading, setLoading] = useState(false);
 
+  // 1️⃣ Get metadata
   useEffect(() => {
     axios
       .get(`${BACKEND_BASE}/api/metadata`)
       .then((res) => {
+        console.log("Metadata:", res.data);
         setMeta(res.data);
         setFilters({
           categories: res.data.categories,
@@ -169,30 +168,50 @@ export default function Page() {
       });
   }, []);
 
+  // 2️⃣ Fetch data when filters change
   useEffect(() => {
-    if (!filters.categories.length) return;
+    if (!filters.categories.length && !filters.regions.length && !filters.years.length) {
+      console.warn("Skipping fetch - no filters set yet.");
+      return;
+    }
+
     setLoading(true);
     const body = {
       categories: filters.categories.length ? filters.categories : null,
       regions: filters.regions.length ? filters.regions : null,
       years: filters.years.length ? filters.years : null,
     };
-    axios
-      .post(`${BACKEND_BASE}/api/summary`, body)
-      .then((r) => setSummary(r.data))
-      .catch(() => {});
-    axios
-      .post(`${BACKEND_BASE}/api/sales_by_category`, body)
-      .then((r) => setCatData(r.data.data || []))
-      .catch(() => {});
-    axios
-      .post(`${BACKEND_BASE}/api/sales_by_region`, body)
-      .then((r) => setRegData(r.data.data || []))
-      .catch(() => {});
-    axios
-      .post(`${BACKEND_BASE}/api/monthly_trend`, body)
-      .then((r) => setTrendData(r.data.data || {}))
-      .catch(() => {});
+
+    console.log("Fetching with body:", body);
+
+    axios.post(`${BACKEND_BASE}/api/summary`, body)
+      .then((r) => {
+        console.log("Summary:", r.data);
+        setSummary(r.data);
+      })
+      .catch((err) => console.error("Summary error:", err));
+
+    axios.post(`${BACKEND_BASE}/api/sales_by_category`, body)
+      .then((r) => {
+        console.log("Category data:", r.data);
+        setCatData(r.data.data || []);
+      })
+      .catch((err) => console.error("Category error:", err));
+
+    axios.post(`${BACKEND_BASE}/api/sales_by_region`, body)
+      .then((r) => {
+        console.log("Region data:", r.data);
+        setRegData(r.data.data || []);
+      })
+      .catch((err) => console.error("Region error:", err));
+
+    axios.post(`${BACKEND_BASE}/api/monthly_trend`, body)
+      .then((r) => {
+        console.log("Trend data:", r.data);
+        setTrendData(r.data.data || {});
+      })
+      .catch((err) => console.error("Trend error:", err));
+
     setLoading(false);
   }, [filters]);
 
@@ -339,7 +358,6 @@ export default function Page() {
 
         {/* Main Content */}
         <main style={{ flex: "3 1 700px" }}>
-          {/* Overview */}
           <motion.section initial={{ y: -20, opacity: 0 }}
             animate={{ y: 0, opacity: 1 }}
             transition={{ duration: 0.6, ease: "easeOut" }}
@@ -347,68 +365,41 @@ export default function Page() {
             <h2>Overview</h2>
             {loading && <div>Loading...</div>}
             {summary && (
-              <div
-                style={{
-                  display: "flex",
-                  gap: 16,
-                  flexWrap: "wrap",
-                }}
-              >
-                <AnimatedCard>
-                  💰 <strong>Total Sales:</strong> $
-                  {Math.round(summary.total_sales).toLocaleString()}
-                </AnimatedCard>
-                <AnimatedCard>
-                  📦 <strong>Avg Order:</strong> $
-                  {summary.avg_order_value.toFixed(2)}
-                </AnimatedCard>
-                <AnimatedCard>
-                  🛒 <strong>Orders:</strong> {summary.orders}
-                </AnimatedCard>
-                <AnimatedCard>
-                  📈 <strong>Total Profit:</strong> $
-                  {Math.round(summary.total_profit).toLocaleString()}
-                </AnimatedCard>
+              <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
+                <AnimatedCard>💰 <strong>Total Sales:</strong> ${Math.round(summary.total_sales).toLocaleString()}</AnimatedCard>
+                <AnimatedCard>📦 <strong>Avg Order:</strong> ${summary.avg_order_value.toFixed(2)}</AnimatedCard>
+                <AnimatedCard>🛒 <strong>Orders:</strong> {summary.orders}</AnimatedCard>
+                <AnimatedCard>📈 <strong>Total Profit:</strong> ${Math.round(summary.total_profit).toLocaleString()}</AnimatedCard>
               </div>
             )}
           </motion.section>
 
-          {/* Sales by Category */}
           <ChartSection title="Sales by Category">
             <Plot
-              data={[
-                {
-                  x: catData.map((d) => d.Category),
-                  y: catData.map((d) => d.Sales),
-                  type: "bar",
-                  marker: { color: "blueviolet" },
-                },
-              ]}
-              layout={{
-                autosize: true,
-                title: { text: "", font: { color: "black" } },
-              }}
-              style={{ width: "100%", height: 400 }}
-            />
-          </ChartSection>
-
-          {/* Sales by Region */}
-          <ChartSection title="Sales by Region">
-            <Plot
-              data={[
-                {
-                  labels: regData.map((d) => d.Region),
-                  values: regData.map((d) => d.Sales),
-                  type: "pie",
-                  hole: 0.3,
-                },
-              ]}
+              data={[{
+                x: catData.map((d) => d.Category),
+                y: catData.map((d) => d.Sales),
+                type: "bar",
+                marker: { color: "blueviolet" },
+              }]}
               layout={{ autosize: true }}
               style={{ width: "100%", height: 400 }}
             />
           </ChartSection>
 
-          {/* Monthly Trend */}
+          <ChartSection title="Sales by Region">
+            <Plot
+              data={[{
+                labels: regData.map((d) => d.Region),
+                values: regData.map((d) => d.Sales),
+                type: "pie",
+                hole: 0.3,
+              }]}
+              layout={{ autosize: true }}
+              style={{ width: "100%", height: 400 }}
+            />
+          </ChartSection>
+
           <ChartSection title="Monthly Trend">
             <Plot
               data={Object.keys(trendData).map((year) => ({
@@ -424,17 +415,10 @@ export default function Page() {
         </main>
       </div>
 
-      <footer
-        style={{
-          marginTop: 32,
-          textAlign: "center",
-          color: "#555",
-        }}
-      >
+      <footer style={{ marginTop: 32, textAlign: "center", color: "#555" }}>
         <hr />
         <small>
-          Project by <strong>Nikhil Tanwar</strong> — Backend: FastAPI, Frontend:
-          Next.js + Plotly
+          Project by <strong>Nikhil Tanwar</strong> — Backend: FastAPI, Frontend: Next.js + Plotly
         </small>
       </footer>
     </div>
